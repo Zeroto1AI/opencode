@@ -73,6 +73,8 @@ export default Plugin.define({
           "Run Anthropic's authenticated Claude Code agent non-interactively in the current workspace. It can inspect, edit, and execute commands. Optionally select any model accepted by the local Claude CLI.",
         input: claudeInput,
         execute: async (input: any, context: any) => {
+          await ctx.permission.assert({ sessionID: context.sessionID, agent: context.agent,
+            action: "cli-claude", resources: ["*"] })
           const commandArgs = [
             "--print",
             "--output-format",
@@ -107,6 +109,8 @@ export default Plugin.define({
           "Run OpenAI's authenticated Codex CLI non-interactively in the current workspace. It can inspect, edit, and execute commands. Optionally select any model accepted by the local Codex CLI.",
         input: codexInput,
         execute: async (input: any, context: any) => {
+          await ctx.permission.assert({ sessionID: context.sessionID, agent: context.agent,
+            action: "cli-codex", resources: ["*"] })
           const commandArgs = [
             "exec",
             "-",
@@ -147,6 +151,8 @@ export default Plugin.define({
           "Run Google's authenticated Antigravity coding agent (agy) non-interactively in the current workspace. It can inspect, edit, and execute commands. Select any model exposed by the local agy installation. Note: reasoning effort is encoded in the model ID suffix (e.g. gemini-3.7-flash-high), so pass a full model ID to pick the effort level.",
         input: antigravityInput,
         execute: async (input: any, context: any) => {
+          await ctx.permission.assert({ sessionID: context.sessionID, agent: context.agent,
+            action: "cli-antigravity", resources: ["*"] })
           const commandArgs = ["--print", input.prompt, "--dangerously-skip-permissions", "--add-dir", directory]
 
           if (input.model) commandArgs.push("--model", input.model)

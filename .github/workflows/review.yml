@@ -1,0 +1,86 @@
+name: PR review reports
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: "23 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number (empty reviews every open PR)"
+        required: false
+        type: string
+
+# This job reads untrusted Git objects but NEVER checks out or executes PR code.
+# Enable only after reviewing the trusted default-branch implementation.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: review-reports
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: vars.REVIEW_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out trusted reviewer implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.5"
+
+      - name: Validate authentication configuration
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::error::Configure ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN before enabling reviews."
+            exit 1
+          fi
+
+      - name: Install Claude CLI
+        env:
+          CLAUDE_VERSION: ${{ vars.REVIEW_CLAUDE_VERSION }}
+        run: |
+          if [ -z "$CLAUDE_VERSION" ]; then
+            echo "::error::Set REVIEW_CLAUDE_VERSION to a tested exact Claude Code version."
+            exit 1
+          fi
+          npm install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION"
+
+      - name: Test trusted reviewer
+        run: bun test tests
+
+      - name: Review PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          TARGET_REPOSITORY: ${{ github.repository }}
+          TARGET_PR: ${{ github.event.pull_request.number || inputs.pr }}
+          REVIEW_MODEL: ${{ vars.REVIEW_MODEL || 'sonnet' }}
+        run: |
+          if [ -n "$TARGET_PR" ]; then
+            bun scripts/review.ts --repo "$TARGET_REPOSITORY" --pr "$TARGET_PR" --model "$REVIEW_MODEL" --output outputs/reviews
+          else
+            bun scripts/review.ts --repo "$TARGET_REPOSITORY" --all --model "$REVIEW_MODEL" --output outputs/reviews
+          fi
+
+      - name: Save reports even if a review fails
+        if: always()
+        uses: actions/upload-artifact@c2acdedd35a8824a1552c7137f8c18288c3ea469 # v7.0.2
+        with:
+          name: pr-review-reports
+          path: outputs/reviews/
+          if-no-files-found: warn
+          retention-days: 14
